@@ -25,8 +25,8 @@ class CruiseHelper:
     self._experimental_mode = False
     self.experimental_mode_switched = False
 
-  def update(self, CS, events, experimental_mode) -> None:
-        print(f"DEBUG MapSpeedLimit: {self.params.get_float('MapSpeedLimit')}")
+  def update(self, CS, events, experimental_mode) -> None:      
+    print(f"DEBUG MapSpeedLimit: {self.params.get_float('MapSpeedLimit')}")
     if self.CP.openpilotLongitudinalControl:
       if CS.cruiseState.available:
         self.update_button_frame_counts(CS)
