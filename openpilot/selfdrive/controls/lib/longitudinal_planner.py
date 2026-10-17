@@ -99,8 +99,7 @@ class LongitudinalPlanner(LongitudinalPlannerSP):
     # --- CUSTOM QUEBEC SPEED LIMIT BUTTON-TAP SYNC HOOK ---
     # =========================================================================
     # If Sunnypilot's sub-messages contain a valid detected road sign speed limit:
-    current_limit_ms = sm['longitudinalPlan'].speedLimit if 'longitudinalPlan' in sm.updated else 0.0
-    
+    current_limit_ms = sm['longitudinalPlan'].speedLimit if sm.valid.get('longitudinalPlan', False) else 0.0
     if current_limit_ms > 0:
       # Intercept physical button stalk clicks (RES+ or SET-)
       for be in sm['carState'].buttonEvents:
