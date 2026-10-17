@@ -94,7 +94,24 @@ class LongitudinalPlanner(LongitudinalPlannerSP):
     v_cruise = v_cruise_kph * CV.KPH_TO_MS
     if sm['controlsState'].forceDecel:
       v_cruise = 0.0
+      
+    # =========================================================================
+    # --- CUSTOM QUEBEC SPEED LIMIT BUTTON-TAP SYNC HOOK ---
+    # =========================================================================
+    # If Sunnypilot's sub-messages contain a valid detected road sign speed limit:
+    current_limit_ms = sm['longitudinalPlan'].speedLimit if 'longitudinalPlan' in sm.updated else 0.0
+    
+    if current_limit_ms > 0:
+      # Intercept physical button stalk clicks (RES+ or SET-)
+      for be in sm['carState'].buttonEvents:
+        if be.pressed and be.type in ['cruiseStalkDown', 'setCruise', 'cruiseStalkUp', 'resumeCruise']:
+          # Instantly force openpilot's trajectory planner speed to match the metric road sign
+          v_cruise = current_limit_ms
+          # Sync back to the vehicle's state machine tracking variables
+          self.v_desired_filter.x = v_ego
+    # =========================================================================
 
+      
     long_control_off = sm['controlsState'].longControlState == LongCtrlState.off
 
     # Reset current state when not engaged, or user is controlling the speed
