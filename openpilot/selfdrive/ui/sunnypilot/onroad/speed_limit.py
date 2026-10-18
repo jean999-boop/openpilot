@@ -185,7 +185,38 @@ class SpeedLimitRenderer(Widget, SpeedLimitAlertRenderer):
     width = UI_CONFIG.set_speed_width_metric if ui_state.is_metric else UI_CONFIG.set_speed_width_imperial
     x = rect.x + 60 + width + 30 - 6
     y = rect.y + 45 - 6
+    
+    # =========================================================================
+    # --- CUSTOM QUEBEC RECTANGULAR SPEED LIMIT SIGN LAYOUT ---
+    # =========================================================================
+    if ui_state.sm.valid.get('longitudinalPlan', False):
+        plan = ui_state.sm['longitudinalPlan']
+        
+        if plan.speedLimitValid and plan.speedLimit > 0:
+            # 1. Establish layout dimensions matching a North American rectangle
+            sign_w = 110
+            sign_h = 140
+            
+            # 2. Paint the clean white rectangular background using Raylib primitives
+            # Solid white rounded rectangle fill
+            rl.draw_rectangle_rounded(rl.Rectangle(x, y, sign_w, sign_h), 0.1, 4, rl.COLOR_WHITE)
+            # Crisp black border overlay
+            rl.draw_rectangle_rounded_lines_ex(rl.Rectangle(x, y, sign_w, sign_h), 0.1, 4, 4, rl.COLOR_BLACK)
 
+            # 3. Draw the "MAXIMUM" header text exactly like a Quebec highway sign
+            rl.draw_text("MAXIMUM", int(x + 16), int(y + 12), 16, rl.COLOR_BLACK)
+
+            # 4. Convert the openpilot raw speed from m/s to km/h digits
+            speed_limit_kmh = int(round(plan.speedLimit * 3.6))
+            limit_str = str(speed_limit_kmh)
+
+            # 5. Center and paint the numerical digits inside the boundary box
+            text_offset = 22 if len(limit_str) >= 3 else 32
+            rl.draw_text(limit_str, int(x + text_offset), int(y + 45), 48, rl.COLOR_BLACK)
+            
+            return  # Exit early so it skips the rest of the file's circular rendering
+    # =========================================================================
+    
     sign_rect = rl.Rectangle(x, y, width, UI_CONFIG.set_speed_height + 6 * 2)
 
     alpha = self._pre_active_fade.alpha
