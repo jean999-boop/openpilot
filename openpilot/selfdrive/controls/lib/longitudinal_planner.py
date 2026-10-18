@@ -50,7 +50,14 @@ def get_cruise_accel(e2e, v_cruise, v_ego, a_cruise_prev, angle_steers, CP, dt, 
       coast_limit = np.interp(v_ego, [MIN_ALLOW_THROTTLE_SPEED, MIN_ALLOW_THROTTLE_SPEED*2], [max_accel, clipped_accel_coast])
       max_accel = min(max_accel, coast_limit)
 
-  target_accel = np.clip(v_cruise - v_ego, A_CRUISE_MIN, max_accel)
+  # --- SMOOTH PROGRESSIVE ACCELERATION CURVE ---
+  v_error = v_cruise - v_ego
+  if v_error > 0:
+    # Scale acceleration smoothly based on speed gap (Fast but never aggressive)
+    smooth_factor = np.interp(v_error, [0.0, 5.0, 15.0], [0.1, 0.5, 1.0])
+    max_accel = max_accel * smooth_factor
+
+  target_accel = np.clip(v_error, A_CRUISE_MIN, max_accel)
   j_cruise = np.interp(v_ego, A_CRUISE_MAX_BP, J_CRUISE_VALS)
   target_accel = float(np.clip(target_accel, a_cruise_prev - j_cruise * dt, a_cruise_prev + j_cruise * dt))
 
