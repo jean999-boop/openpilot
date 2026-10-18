@@ -119,15 +119,28 @@ class VCruiseHelper(VCruiseHelperSP):
     # Quick tap on accel/decel snaps directly to speed limit + 3
     # =========================================================
     speed_limit_kph = getattr(self, 'v_speed_limit_kph', 0)
+    
+    # 1. QUICK TAP: Instantly set car cruise target exactly to the road sign metric speed limit
+    
     if not long_press and button_type in (ButtonType.accelCruise, ButtonType.decelCruise) and speed_limit_kph and speed_limit_kph > 0:
       self.v_cruise_kph = speed_limit_kph + 3
     else:
-      # Standard incremental behavior for long presses or when no speed limit is found
-      if long_press and self.v_cruise_kph % v_cruise_delta != 0:  # partial interval
-        self.v_cruise_kph = CRUISE_NEAREST_FUNC[button_type](self.v_cruise_kph / v_cruise_delta) * v_cruise_delta
-      else:
-        self.v_cruise_kph += v_cruise_delta * CRUISE_INTERVAL_SIGN[button_type]
-
+    # 2. LONG PRESS: Force the system to move incrementally by exactly 1 km/h step intervals
+    else:    
+      if long_press:
+        # Increase or decrease the target value by exactly 1 step based on button action
+       if button_type == ButtonType.accelCruise:
+      self.v_cruise_kph += 1
+    elif button_type == ButtonType.decelCruise:
+      self.v_cruise_kph -= 1
+  else:
+    # Standard fallback if a quick tap happens but no speed limit data is available
+    self.v_cruise_kph += v_cruise_delta * CRUISE_INTERVAL_SIGN[button_type] else: 
+    # ========================================================================
+  
+  button_type == ButtonType.decelCruise:
+      self.v_cruise_kph -= 1
+    
     # If set is pressed while overriding, clip cruise speed to minimum of vEgo
     if CS.gasPressed and button_type in (ButtonType.decelCruise, ButtonType.setCruise):
       self.v_cruise_kph = max(self.v_cruise_kph, CS.vEgo * CV.MS_TO_KPH)
