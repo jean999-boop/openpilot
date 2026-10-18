@@ -29,11 +29,13 @@ MIN_ALLOW_THROTTLE_SPEED = 2.5
 _A_TOTAL_MAX_V = [1.7, 3.2]
 _A_TOTAL_MAX_BP = [20., 40.]
 
+
 def get_max_accel(v_ego):
   return np.interp(v_ego, A_CRUISE_MAX_BP, A_CRUISE_MAX_VALS)
 
 def get_coast_accel(pitch):
   return np.sin(pitch) * -5.65 - 0.3  # fitted from data using xx/projects/allow_throttle/compute_coast_accel.py
+  
 
 def get_cruise_accel(e2e, v_cruise, v_ego, a_cruise_prev, angle_steers, CP, dt, accel_coast, allow_throttle):
   max_accel = ACCEL_MAX if e2e else get_max_accel(v_ego)
@@ -53,8 +55,8 @@ def get_cruise_accel(e2e, v_cruise, v_ego, a_cruise_prev, angle_steers, CP, dt, 
   target_accel = float(np.clip(target_accel, a_cruise_prev - j_cruise * dt, a_cruise_prev + j_cruise * dt))
 
   return target_accel
-
-
+  
+  
 class LongitudinalPlanner(LongitudinalPlannerSP):
   def __init__(self, CP, CP_SP, init_v=0.0, init_a=0.0, dt=DT_MDL):
     self.CP = CP
@@ -63,54 +65,31 @@ class LongitudinalPlanner(LongitudinalPlannerSP):
     self.fcw = False
     self.dt = dt
     self.allow_throttle = True
-
+    
     self.v_desired_filter = FirstOrderFilter(init_v, 2.0, self.dt)
     self.a_cruise = init_a
     self.output_a_target = init_a
     self.output_should_stop = False
-
+    
     self.v_desired_trajectory = np.zeros(CONTROL_N)
     self.a_desired_trajectory = np.zeros(CONTROL_N)
     self.j_desired_trajectory = np.zeros(CONTROL_N)
 
-      def update(self, sm):
+  def update(self, sm):
     LongitudinalPlannerSP.update(self, sm)
-    # Custom Stop Sign and Traffic Light Hold Logic
-    STOP_HOLD_THRESHOLD_MS = 0.2  # Speed threshold (~0.7 km/h) to consider fully stopped
-    if getattr(self, 'stop_sign_detected', False) or getattr(self, 'traffic_light_state', '') == 'RED':
-      if getattr(self, 'v_desired', 0.0) < STOP_HOLD_THRESHOLD_MS:
-        v_target = 0.0
-        self.a_desired = min(getattr(self, 'a_desired', 0.0), -0.5)  # Apply gentle hold braking pressure
     
-            
-                 
+    # 1. Base Variables & Initialization
     if len(sm['carControl'].orientationNED) == 3:
       accel_coast = get_coast_accel(sm['carControl'].orientationNED[1])
     else:
       accel_coast = ACCEL_MAX
-
+      
     v_ego = sm['carState'].vEgo
     v_cruise_kph = min(sm['carState'].vCruise, V_CRUISE_MAX)
     v_cruise = v_cruise_kph * CV.KPH_TO_MS
     if sm['controlsState'].forceDecel:
       v_cruise = 0.0
-      
-    # =========================================================================
-    # --- CUSTOM QUEBEC SPEED LIMIT BUTTON-TAP SYNC HOOK ---
-    # =========================================================================
-    # If Sunnypilot's sub-messages contain a valid detected road sign speed limit:
-    current_limit_ms = sm['longitudinalPlan'].speedLimit if sm.valid.get('longitudinalPlan', False) else 0.0
-    if current_limit_ms > 0:
-      # Intercept physical button stalk clicks (RES+ or SET-)
-      for be in sm['carState'].buttonEvents:
-        if be.pressed and be.type in ['cruiseStalkDown', 'setCruise', 'cruiseStalkUp', 'resumeCruise']:
-          # Instantly force openpilot's trajectory planner speed to match the metric road sign
-          v_cruise = current_limit_ms
-          # Sync back to the vehicle's state machine tracking variables
-          self.v_desired_filter.x = v_ego
-    # =========================================================================
 
-      
     long_control_off = sm['controlsState'].longControlState == LongCtrlState.off
 
     # Reset current state when not engaged, or user is controlling the speed
@@ -136,9 +115,21 @@ class LongitudinalPlanner(LongitudinalPlannerSP):
     # No change cost when user is controlling the speed, or when standstill
     prev_accel_constraint = not (reset_state or sm['carState'].standstill)
 
+    # =========================================================================
+    # --- CUSTOM QUEBEC SPEED LIMIT BUTTON-TAP SYNC HOOK ---
+    # =========================================================================
+    current_limit_ms = sm['longitudinalPlan'].speedLimit if sm.valid.get('longitudinalPlan', False) else 0.0
+    if current_limit_ms > 0:
+      for be in sm['carState'].buttonEvents:
+        if be.pressed and be.type in ['cruiseStalkDown', 'setCruise', 'cruiseStalkUp', 'resumeCruise']:
+          v_cruise = current_limit_ms
+          self.v_desired_filter.x = v_ego
+    # =========================================================================
+
     # Get new v_cruise and a_target from Smart Cruise Control and Speed Limit Assist
     v_cruise, self.output_a_target = LongitudinalPlannerSP.update_targets(self, sm, self.v_desired_filter.x, self.output_a_target, v_cruise)
 
+    # 2. Execute MPC Solver Operations
     self.mpc.set_weights(prev_accel_constraint, personality=sm['selfdriveState'].personality)
     self.mpc.set_cur_state(self.v_desired_filter.x, self.output_a_target)
     self.mpc.update(sm['radarState'], personality=sm['selfdriveState'].personality)
@@ -156,8 +147,7 @@ class LongitudinalPlanner(LongitudinalPlannerSP):
     a_prev = self.output_a_target
 
     action_t =  self.CP.longitudinalActuatorDelay + DT_MDL
-    output_a_target_mpc = get_accel_from_plan(self.v_desired_trajectory, self.a_desired_trajectory, CONTROL_N_T_IDX,
-                                              action_t=action_t)
+    output_a_target_mpc = get_accel_from_plan(self.v_desired_trajectory, self.a_desired_trajectory, CONTROL_N_T_IDX, action_t=action_t)
     output_should_stop_mpc = should_stop(v_ego, output_a_target_mpc)
     output_a_target_e2e = sm['modelV2'].action.desiredAcceleration
     output_should_stop_e2e = sm['modelV2'].action.shouldStop
@@ -178,11 +168,31 @@ class LongitudinalPlanner(LongitudinalPlannerSP):
     self.output_should_stop = any(should_stop for _, _, should_stop in candidates)
     self.output_a_target = np.clip(output_a_target, ACCEL_MIN, ACCEL_MAX)
 
+    # =========================================================================
+    # --- FIXED QUEBEC STOP SIGN & TRAFFIC LIGHT INTERSECTION LOGIC ---
+    # =========================================================================
+    if sm.valid.get('modelV2', False):
+      model_data = sm['modelV2']
+      STOP_HOLD_THRESHOLD_MS = 0.2  # Speed threshold (~0.7 km/h) to consider fully stopped
+      stop_sign_prob = getattr(model_data.meta, 'stopSignProb', 0.0)
+      brake_prediction = getattr(model_data.meta.disengagePredictions, 'brake', 0.0)
+
+      # Approach smoothing
+      if stop_sign_prob > 0.35:
+        self.output_a_target = min(self.output_a_target, 0.0)
+
+      # Hard physical hold override (Clamps the final MPC profile output)
+      if v_ego < STOP_HOLD_THRESHOLD_MS and (stop_sign_prob > 0.5 or brake_prediction > 0.4):
+        self.output_a_target = -1.5
+        self.output_should_stop = True
+        self.v_desired_trajectory = np.zeros(CONTROL_N)
+        self.a_desired_trajectory.fill(-1.0)
+    # =========================================================================
+
     self.v_desired_filter.x = self.v_desired_filter.x + self.dt * (self.output_a_target + a_prev) / 2.0
 
   def publish(self, sm, pm):
     plan_send = messaging.new_message('longitudinalPlan')
-
     plan_send.valid = sm.all_checks()
 
     longitudinalPlan = plan_send.longitudinalPlan
@@ -204,5 +214,6 @@ class LongitudinalPlanner(LongitudinalPlannerSP):
     longitudinalPlan.allowThrottle = bool(self.allow_throttle)
 
     pm.send('longitudinalPlan', plan_send)
-
     self.publish_longitudinal_plan_sp(sm, pm)
+    
+ 
