@@ -179,25 +179,51 @@ class LongitudinalPlanner(LongitudinalPlannerSP):
     # =========================================================================
     # --- FIXED QUEBEC STOP SIGN & TRAFFIC LIGHT INTERSECTION LOGIC ---
     # =========================================================================
+    quebec_intersection_accel = ACCEL_MAX
+    quebec_should_stop = False
+
     if sm.valid.get('modelV2', False):
       model_data = sm['modelV2']
       STOP_HOLD_THRESHOLD_MS = 0.2  # Speed threshold (~0.7 km/h) to consider fully stopped
       stop_sign_prob = getattr(model_data.meta, 'stopSignProb', 0.0)
       brake_prediction = getattr(model_data.meta.disengagePredictions, 'brake', 0.0)
 
-      # Approach smoothing
+      # Approach smoothing (Requests a clean deceleration curve limit)
       if stop_sign_prob > 0.35:
-        self.output_a_target = min(self.output_a_target, 0.0)
+        quebec_intersection_accel = min(quebec_intersection_accel, 0.0)
 
-      # Hard physical hold override (Clamps the final MPC profile output)
+      # Hard physical hold override 
       if v_ego < STOP_HOLD_THRESHOLD_MS and (stop_sign_prob > 0.5 or brake_prediction > 0.4):
-        self.output_a_target = -1.5
-        self.output_should_stop = True
-        self.v_desired_trajectory = np.zeros(CONTROL_N)
-        self.a_desired_trajectory.fill(-1.0)
+        quebec_intersection_accel = -1.5
+        quebec_should_stop = True
     # =========================================================================
 
-    self.v_desired_filter.x = self.v_desired_filter.x + self.dt * (self.output_a_target + a_prev) / 2.0
+    # 1. Base Variables & Initialization
+    action_t = self.CP.longitudinalActuatorDelay + DT_MDL
+    output_a_target_mpc = get_accel_from_plan(self.v_desired_trajectory, self.a_desired_trajectory, CONTROL_N_T_IDX, 
+                                              action_t=action_t)
+    output_should_stop_mpc = should_stop(v_ego, output_a_target_mpc)
+    output_a_target_e2e = sm['modelV2'].action.desiredAcceleration
+    output_should_stop_e2e = sm['modelV2'].action.shouldStop
+
+    is_e2e = self.is_e2e(sm)
+
+    self.a_cruise = get_cruise_accel(is_e2e, v_cruise, v_ego,
+                                     self.a_cruise, steer_angle_without_offset, self.CP, self.dt,
+                                     accel_coast, self.allow_throttle)
+    cruise_should_stop = should_stop(v_ego, self.a_cruise)
+
+    # --- CLEANLY INTEGRATED CANDIDATES ---
+    candidates = [(output_a_target_mpc, self.mpc.source, output_should_stop_mpc),
+                  (self.a_cruise, LongitudinalPlanSource.cruise, cruise_should_stop),
+                  (quebec_intersection_accel, LongitudinalPlanSource.e2e, quebec_should_stop)]
+    if is_e2e:
+      candidates.append((output_a_target_e2e, LongitudinalPlanSource.e2e, output_should_stop_e2e))
+
+    output_a_target, self.mpc.source, _ = min(candidates, key=lambda c: c[0])
+    self.output_should_stop = any(should_stop for _, _, should_stop in candidates)
+    self.output_a_target = np.clip(output_a_target, ACCEL_MIN, ACCEL_MAX)
+    self.v_desired_filter.x = self.v_desired_filter.x + self.dt * (self.output_a_target + a_cruise_prev) / 2.0
 
   def publish(self, sm, pm):
     plan_send = messaging.new_message('longitudinalPlan')
