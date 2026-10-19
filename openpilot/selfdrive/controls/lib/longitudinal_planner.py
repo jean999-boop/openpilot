@@ -73,7 +73,7 @@ class LongitudinalPlanner(LongitudinalPlannerSP):
     self.a_desired_trajectory = np.zeros(CONTROL_N)
     self.j_desired_trajectory = np.zeros(CONTROL_N)
 
-      def update(self, sm):
+  def update(self, sm):
     LongitudinalPlannerSP.update(self, sm)
     # Custom Stop Sign and Traffic Light Hold Logic
     STOP_HOLD_THRESHOLD_MS = 0.2  # Speed threshold (~0.7 km/h) to consider fully stopped
