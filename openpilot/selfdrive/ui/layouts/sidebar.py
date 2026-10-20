@@ -98,6 +98,9 @@ class Sidebar(Widget, SidebarSP):
   def _render(self, rect: rl.Rectangle):
     # Background
     rl.draw_rectangle_rec(rect, rl.BLACK)
+    
+    # Custom Brand Text Identifier
+    rl.draw_text_ex(self._font_regular, "sunnypilotboop", rl.Vector2(rect.x + 30, rect.y + 800), 28, 0, Colors.WHITE_DIM)
 
     self._draw_buttons(rect)
     self._draw_network_indicator(rect)
